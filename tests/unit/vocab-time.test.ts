@@ -1,4 +1,4 @@
-import { AmbiguousLocalTimeError, localDate, localDayBounds, zonedToUtc } from "../../src/domain/time";
+import { AmbiguousLocalTimeError, localDate, localDayBounds, zonedToUtc, zoneDataPredatesAlbertaTime } from "../../src/domain/time";
 import { parseLikelihoodRange, parseProblemType, parseRating, parseSize } from "../../src/domain/vocab";
 import { canonicalJson } from "../../src/scoring/common";
 import { DEFAULT_SCORING_CONFIG, scoringConfigKey } from "../../src/scoring/case";
@@ -53,6 +53,9 @@ describe("time zones", () => {
     expect((Date.parse(fall.end) - Date.parse(fall.start)) / 36e5).toBe(25);
     const spring = localDayBounds("2026-03-08", Z);
     expect((Date.parse(spring.end) - Date.parse(spring.start)) / 36e5).toBe(23);
+  });
+  it("detects tz data that predates Alberta's permanent UTC−6 change", () => {
+    expect(zoneDataPredatesAlbertaTime()).toBe((process.versions.tz ?? "") < "2026c");
   });
   it("computes the local date of a UTC instant", () => {
     expect(localDate("2026-10-02T05:30:00Z", Z)).toBe("2026-10-01");

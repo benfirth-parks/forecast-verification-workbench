@@ -2,7 +2,7 @@
 
 Prepared 2026-10-06. Status: **draft for Ben's review**. Items marked ❓ need an answer before real data is imported; ✅ marks answers Ben has given.
 
-**Confirmed by Ben (2026-10-06):** the hazard is set in two places. The public bulletin is produced at 17:00 the day before and represents the next day's hazard. Every day a morning meeting and an afternoon meeting also set the hazard and findings internally. All findings and observations live in CAA InfoEx.
+**Confirmed by Ben (2026-10-06):** the hazard is set in two places. The public bulletin is produced at 17:00 the day before and represents the next day's hazard. Every day a morning meeting and an afternoon meeting also set the hazard and findings internally. All findings and observations live in CAA InfoEx. Note: Alberta moved to permanent UTC−6 in November 2026 (IANA tzdata 2026c), so from this winter the 17:00 bulletin is 23:00 UTC and there are no clock changes; see `deployment.md`.
 
 ## 1. Current state
 

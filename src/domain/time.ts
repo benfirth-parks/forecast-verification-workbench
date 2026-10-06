@@ -16,6 +16,14 @@ function offsetMs(ts: number, zone: string): number {
 export class AmbiguousLocalTimeError extends Error {}
 
 /**
+ * Alberta moved to permanent UTC−6 ("Alberta Time") in November 2026 (IANA tzdata 2026c).
+ * A runtime with older tz data puts every Alberta local time and day boundary from then on one hour off.
+ */
+export function zoneDataPredatesAlbertaTime(): boolean {
+  return offsetMs(Date.parse("2027-01-15T12:00:00Z"), "America/Edmonton") !== -6 * 36e5;
+}
+
+/**
  * Wall-clock date/time in `zone` → UTC ISO string.
  * Throws for a non-existent local time (spring-forward gap). For a repeated
  * local time (fall-back overlap) `onAmbiguous` decides; the default throws so

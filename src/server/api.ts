@@ -2,6 +2,7 @@
 // Netlify Function, the local dev server, and integration tests alike.
 import { ZodError, type ZodTypeAny, type z } from "zod";
 import type { HazardAssessment } from "../domain/types";
+import { zoneDataPredatesAlbertaTime } from "../domain/time";
 import { importAvcanProducts } from "../importers/avcan-bulletin";
 import { importAvyfxFeed } from "../importers/avyfx-feed";
 import { importObservations, type CsvMapping } from "../importers/csv-observations";
@@ -68,7 +69,7 @@ export async function handle(req: Request, deps: ApiDeps): Promise<Response> {
 
 // ---------- session ----------
 
-route("GET", "/me", async ({ actor }) => json({ id: actor.id, role: actor.role }));
+route("GET", "/me", async ({ actor }) => json({ id: actor.id, role: actor.role, zone_data_outdated: zoneDataPredatesAlbertaTime() }));
 
 // ---------- cases ----------
 
@@ -229,6 +230,16 @@ const MAX_XLSX_BASE64 = 8_000_000;
 const OBSERVATION_ADAPTERS = new Set(["csv-observations", "xlsx-observations"]);
 
 async function runImporter(body: z.infer<typeof S.importBody>, runId: string, now: Date): Promise<ImportResult<unknown>> {
+  const result = await runAdapter(body, runId, now);
+  if (!zoneDataPredatesAlbertaTime()) return result;
+  return {
+    ...result,
+    messages: [...result.messages, { severity: "warning", code: "outdated_zone_data", message: "This server's time-zone data predates Alberta's permanent UTC−6 change (November 2026), so local times from then on are one hour off. Update Node before committing." }],
+    summary: { ...result.summary, warnings: result.summary.warnings + 1 },
+  };
+}
+
+async function runAdapter(body: z.infer<typeof S.importBody>, runId: string, now: Date): Promise<ImportResult<unknown>> {
   const capturedAt = body.captured_at ?? now.toISOString();
   if (body.adapter === "avcan-bulletin") return importAvcanProducts(body.payload, { domainCode: "BYK", capturedAt, importRunId: runId });
   if (body.adapter === "avyfx-feed") return importAvyfxFeed(body.payload, { domainCode: "BYK", capturedAt, importRunId: runId });

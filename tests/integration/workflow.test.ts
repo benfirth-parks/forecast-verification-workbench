@@ -41,6 +41,9 @@ describe("bulletin → case → hindsight → adjudication → analytics", () =>
   it("validates, then commits, a bulletin and creates one case", async () => {
     const v = await call("administrator", "POST", "/imports/validate", { adapter: "avcan-bulletin", file_name: "b.json", payload: bulletin, captured_at: "2027-01-14T23:05:00Z" });
     expect(v.status).toBe(200);
+    const outdated = (await call("viewer", "GET", "/me")).body.zone_data_outdated;
+    expect(outdated).toBe((process.versions.tz ?? "") < "2026c");
+    expect(v.body.messages.some((m: { code: string }) => m.code === "outdated_zone_data")).toBe(outdated);
     expect(v.body.summary.accepted).toBe(1);
     const c = await call("administrator", "POST", "/imports/commit", { adapter: "avcan-bulletin", file_name: "b.json", payload: bulletin, captured_at: "2027-01-14T23:05:00Z", expected_checksum: v.body.checksum });
     expect(c.body).toMatchObject({ inserted: 1, duplicates: 0, casesCreated: 1 });
