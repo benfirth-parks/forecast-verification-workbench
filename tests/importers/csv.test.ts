@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { importObservations, type CsvMapping } from "../../src/importers/csv-observations";
+import { zonedToUtc } from "../../src/domain/time";
 
 const read = (f: string) => readFileSync(new URL(`../fixtures/csv/${f}`, import.meta.url), "utf8");
 const mapping: CsvMapping = {
@@ -14,7 +15,9 @@ describe("CSV observations — valid file", () => {
     expect(r.summary.errors).toBe(0);
     expect(r.records).toHaveLength(3);
     const [a, b] = r.records.map((x) => x.record) as never[] as { observed_at: string; elevation_m: number; problem_type: string; size_max: number; aspect: string }[];
-    expect(a).toMatchObject({ observed_at: "2027-01-15T17:30:00.000Z", elevation_m: 2450, problem_type: "wind_slab", size_max: 2, aspect: "NE" });
+    // 2027 offsets depend on the runtime's tz data (Alberta moved to permanent UTC−6 in November 2026),
+    // so local times are checked against zonedToUtc, which is pinned to fixed offsets in vocab-time.test.ts.
+    expect(a).toMatchObject({ observed_at: zonedToUtc("2027-01-15", "10:30", "America/Edmonton"), elevation_m: 2450, problem_type: "wind_slab", size_max: 2, aspect: "NE" });
     expect(b).toMatchObject({ observed_at: "2027-01-15T18:00:00.000Z", elevation_m: 2408, problem_type: "storm_slab" });
   });
   it("normalizes mixed units with info and warning messages", () => {
@@ -65,7 +68,7 @@ describe("CSV observations — weather (wide format)", () => {
   });
   it("splits wide rows into one observation per variable", () => {
     expect(r.records).toHaveLength(4);
-    expect(r.records[0].record).toMatchObject({ station_code: "Bow Summit", variable: "hn24", value: 24, observed_at: "2027-01-16T14:00:00.000Z" });
+    expect(r.records[0].record).toMatchObject({ station_code: "Bow Summit", variable: "hn24", value: 24, observed_at: zonedToUtc("2027-01-16", "07:00", "America/Edmonton") });
   });
   it("stores non-numeric readings as missing with a flag, never as 0", () => {
     const broken = r.records.find((x) => x.record.provenance.source_record_id.startsWith("Sunshine") && (x.record as { variable: string }).variable === "hn24")!.record as { value: number | null; quality_flags: string[] };

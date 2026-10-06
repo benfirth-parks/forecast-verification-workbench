@@ -22,11 +22,11 @@ describe("xlsx reader", () => {
   });
   it("reads dates as wall-clock text, formulas by their result, rich text as plain text", async () => {
     const [a, b, c] = (await readXlsx(await syntheticWorkbook())).rows;
-    expect(a["Date observed"]).toBe("2027-01-15 10:30");
+    expect(a["Date observed"]).toBe("2026-01-15 10:30");
     expect(a.Notes).toBe("Synthetic note");
     expect(a.Size).toBe("2");
     expect(b.Size).toBe("1.5");
-    expect(c["Date observed"]).toBe("2027-01-16");
+    expect(c["Date observed"]).toBe("2026-01-16");
     expect(c.Size).toBe("");
   });
   it("reports a missing sheet and an unreadable file instead of guessing", async () => {
@@ -40,7 +40,7 @@ describe("xlsx reader", () => {
     const r = importObservations({ data: s.rows, row_numbers: s.row_numbers, file_name: "synthetic.xlsx", import_run_id: "run-x", checksum, messages: s.messages }, mapping);
     expect(r.checksum).toBe(checksum);
     expect(r.records).toHaveLength(3);
-    expect(r.records[0].record).toMatchObject({ observed_at: "2027-01-15T17:30:00.000Z", size_max: 2, aspect: "NE", problem_type: "wind_slab" });
+    expect(r.records[0].record).toMatchObject({ observed_at: "2026-01-15T17:30:00.000Z", size_max: 2, aspect: "NE", problem_type: "wind_slab" });
     expect(r.records[1].record).toMatchObject({ size_max: 1.5, problem_type: "storm_slab" });
     const dateOnly = r.messages.find((m) => m.code === "date_only");
     expect(dateOnly?.row).toBe(7);

@@ -33,23 +33,25 @@ describe("vocabularies", () => {
 });
 
 describe("time zones", () => {
+  // Fixed to dates before November 2026: Alberta then moved to permanent UTC−6 (IANA tzdata 2026c),
+  // so later winters have no clock changes and a different offset depending on the runtime's tz data.
   const Z = "America/Edmonton";
   it("converts wall time in winter and summer", () => {
-    expect(zonedToUtc("2027-01-15", "07:00", Z)).toBe("2027-01-15T14:00:00.000Z");
+    expect(zonedToUtc("2026-01-15", "07:00", Z)).toBe("2026-01-15T14:00:00.000Z");
     expect(zonedToUtc("2026-10-01", "17:00", Z)).toBe("2026-10-01T23:00:00.000Z");
   });
   it("refuses the repeated hour at fall-back unless told which", () => {
-    expect(() => zonedToUtc("2026-11-01", "01:30", Z)).toThrow(AmbiguousLocalTimeError);
-    expect(zonedToUtc("2026-11-01", "01:30", Z, "earlier")).toBe("2026-11-01T07:30:00.000Z");
-    expect(zonedToUtc("2026-11-01", "01:30", Z, "later")).toBe("2026-11-01T08:30:00.000Z");
+    expect(() => zonedToUtc("2025-11-02", "01:30", Z)).toThrow(AmbiguousLocalTimeError);
+    expect(zonedToUtc("2025-11-02", "01:30", Z, "earlier")).toBe("2025-11-02T07:30:00.000Z");
+    expect(zonedToUtc("2025-11-02", "01:30", Z, "later")).toBe("2025-11-02T08:30:00.000Z");
   });
   it("refuses the skipped hour at spring-forward", () => {
-    expect(() => zonedToUtc("2027-03-14", "02:30", Z)).toThrow(AmbiguousLocalTimeError);
+    expect(() => zonedToUtc("2026-03-08", "02:30", Z)).toThrow(AmbiguousLocalTimeError);
   });
   it("gives 25- and 23-hour local days around DST", () => {
-    const fall = localDayBounds("2026-11-01", Z);
+    const fall = localDayBounds("2025-11-02", Z);
     expect((Date.parse(fall.end) - Date.parse(fall.start)) / 36e5).toBe(25);
-    const spring = localDayBounds("2027-03-14", Z);
+    const spring = localDayBounds("2026-03-08", Z);
     expect((Date.parse(spring.end) - Date.parse(spring.start)) / 36e5).toBe(23);
   });
   it("computes the local date of a UTC instant", () => {
