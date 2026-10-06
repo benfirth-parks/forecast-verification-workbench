@@ -1,0 +1,22 @@
+{
+  "_synthetic_test_fixture": "NOT A REAL FORECAST",
+  "generated": "2027-01-14T23:05:00.000Z",
+  "lang": "en",
+  "forecasts": [
+    {
+      "id": "synthetic-fx-1", "name": "Synthetic BYK", "forecaster": "Synthetic",
+      "issued": "2027-01-14T23:00:00.000Z", "validUntil": "2027-01-15T23:00:00.000Z", "published": "2027-01-14T22:58:00.000Z",
+      "areas": [{"id": "p1", "name": "Synthetic area"}],
+      "headline": {"html": "<p>Synthetic headline</p>", "text": "Synthetic headline"},
+      "days": [
+        {"date": "2027-01-15", "day": "Friday", "danger": {"alpine": "Considerable", "treeline": "Moderate", "belowTreeline": "Low"}},
+        {"date": "2027-01-16", "day": "Saturday", "danger": {"alpine": "High", "treeline": "Considerable", "belowTreeline": "No Rating"}}
+      ],
+      "problems": [
+        {"type": "Storm Slab", "day": "nowcast", "distribution": "Widespread", "sensitivity": "Reactive", "size": "1.5", "aspectsElevations": ["N:alp", "NE:alp", "N:tl"]},
+        {"type": "Wind Slab", "day": "2027-01-15", "distribution": "Specific", "sensitivity": "Stubborn", "size": "2", "aspectsElevations": ["E:alp", "SE:alp"]}
+      ],
+      "confidence": {"rating": "Moderate", "statements": []}
+    }
+  ]
+}

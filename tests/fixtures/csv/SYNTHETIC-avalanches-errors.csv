@@ -1,0 +1,8 @@
+ID,Date observed,Occurred from,Confidence,Location,Size,Trigger,Aspect,Elevation,Problem,Observer notes
+E-1,,2027-01-15 08:00,high,missing date,2,Na,NE,2450,wind slab,x
+E-2,2027-01-15 10:00,,high,bad code,7,Na,NNE,2450,slush flow,x
+E-3,2025-11-02 01:30,,high,DST overlap,2,Na,N,2450,wind slab,x
+E-4,2027-01-15 11:00,,high,date only ok,2,Na,N,2450,wind slab,x
+E-4,2027-01-15 11:00,,high,duplicate id,2,Na,N,2450,wind slab,x
+E-5,2027-01-16,,high,date only,2,Na,N,2450,wind slab,x
+E-6,2027-01-15 11:00,,high

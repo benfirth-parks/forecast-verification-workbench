@@ -1,0 +1,36 @@
+[
+  {"id":"other-centre","owner":{"value":"avcan"},"report":{"id":"x"}},
+  {
+    "_synthetic_test_fixture": "NOT A REAL BULLETIN - invented values for parser tests",
+    "id": "synthetic-byk-0001",
+    "type": "avalancheforecast",
+    "area": {"id": "synthetic-area", "name": "synthetic-area", "bbox": null},
+    "report": {
+      "id": "synthetic-byk-0001",
+      "dateIssued": "2027-01-14T23:00:00.000Z",
+      "validUntil": "2027-01-15T23:00:00.000Z",
+      "timezone": "America/Edmonton",
+      "title": "Synthetic test area",
+      "highlights": "<p>Synthetic highlight text.</p>",
+      "confidence": {"rating": {"value": "moderate", "display": "Moderate"}},
+      "dangerRatings": [
+        {"date": {"value": "2027-01-15T07:00:00Z", "display": "Friday"}, "ratings": {
+          "alp": {"rating": {"value": "considerable", "display": "3 - Considerable"}},
+          "tln": {"rating": {"value": "moderate", "display": "2 - Moderate"}},
+          "btl": {"rating": {"value": "low", "display": "1 - Low"}}}},
+        {"date": {"value": "2027-01-16T07:00:00Z", "display": "Saturday"}, "ratings": {
+          "alp": {"rating": {"value": "high"}}, "tln": {"rating": {"value": "considerable"}}, "btl": {"rating": {"value": "moderate"}}}}
+      ],
+      "problems": [
+        {"type": {"value": "windSlab", "display": "Wind Slab"}, "comment": "<p>Synthetic wind slab comment.</p>",
+         "data": {"elevations": [{"value": "alp"}, {"value": "tln"}], "aspects": [{"value": "n"}, {"value": "ne"}, {"value": "e"}],
+                  "likelihood": {"value": "possible_likely"}, "expectedSize": {"min": "1.0", "max": "2.0"}}},
+        {"type": {"value": "persistentSlab", "display": "Persistent Slab"}, "comment": "",
+         "data": {"elevations": [{"value": "tln"}], "aspects": [{"value": "nw"}, {"value": "n"}],
+                  "likelihood": {"value": "unlikely"}, "expectedSize": {"min": "1.5", "max": "2.5"}}}
+      ]
+    },
+    "version": 3,
+    "owner": {"value": "parks-byk", "display": "Parks Canada"}
+  }
+]

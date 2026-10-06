@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.local-db/
+.netlify/
+.env
+.env.*
+!.env.example
+playwright-report/
+test-results/
+coverage/
+*.log
+.e2e-db/

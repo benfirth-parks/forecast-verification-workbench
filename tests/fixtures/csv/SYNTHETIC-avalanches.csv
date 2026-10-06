@@ -1,0 +1,4 @@
+ID,Date observed,Occurred from,Confidence,Location,Size,Trigger,Aspect,Elevation,Problem,Observer notes
+AV-1,2027-01-15 10:30,2027-01-15 08:00,high,Synthetic slope A,2,Na,NE,2450,wind slab,synthetic
+AV-2,2027-01-15T18:00:00Z,,moderate,Synthetic slope B,1.5,Sa,N,7900ft,storm slab,synthetic
+AV-3,2027-01-15 12:00,,low,Synthetic slope C,1,Na,E,2300,dry loose,synthetic
