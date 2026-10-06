@@ -17,18 +17,21 @@ files. Phase 0 findings and open questions: [docs/phase-0-discovery.md](docs/pha
 ## What works now (Phase 1 vertical slice)
 
 - Importers with dry-run validation, row-level messages, checksums and idempotent re-import:
-  avalanche.ca product JSON, Parks Avy FX feed JSON, observation CSVs (avalanches,
-  mitigation, field observations, weather stations).
+  avalanche.ca product JSON, Parks Avy FX feed JSON, observation CSV and Excel files
+  (avalanches, mitigation, field observations, weather stations), for example InfoEx exports.
+- The 17:00 bulletin is mapped to the next day's hazard (Ben's confirmed rule).
 - Immutable forecast snapshots; edited bulletins become amendments, cases stay on the as-issued version.
-- Morning meeting entry (morning hazard assessment + expected weather) and afternoon nowcast.
+- Daily meetings entry: the morning meeting's call (+ expected weather) and the afternoon meeting's call.
+- The day's calls side by side on each case (bulletin → morning → afternoon → hindsight), with what changed,
+  and season tables of how often each meeting raised, lowered or kept the call.
 - Review queue, split-screen case page, independent hindsight first, differences unlocked after.
 - Coverage statements and evidence classification (missing reports are never negatives).
 - Versioned hindsight and adjudications; scores stored per scoring version.
 - Season analytics with screening flags for systematic misses.
 - Roles (viewer, analyst, reviewer, administrator) checked in the API and enforced by RLS.
 
-Not yet: map (MapLibre), seasonal timeline ribbon, exports, admin screens, Excel/CAAML
-adapters, scheduled bulletin capture (built, switched off pending approval).
+Not yet: map (MapLibre), seasonal timeline ribbon, exports, admin screens, an InfoEx column
+template (needs a sample export), CAAML adapter, scheduled bulletin capture (built, switched off pending approval).
 
 ## Setup
 

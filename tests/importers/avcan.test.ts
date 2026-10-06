@@ -23,14 +23,27 @@ describe("avalanche.ca adapter — live BYK product (2026-10-01)", () => {
     expect(b.assessments[0].ratings.alp).toEqual({ kind: "not_rated", state: "early_season" });
     expect(b.assessments[0].ratings.btl).toEqual({ kind: "not_rated", state: "no_rating" });
   });
-  it("maps days with the payload-date rule and flags it as unconfirmed", () => {
-    expect(b.assessments.map((a) => a.valid_date)).toEqual(["2026-10-01", "2026-10-02", "2026-10-03"]);
-    expect(b.assessments.map((a) => a.forecast_horizon_days)).toEqual([0, 1, 2]);
-    expect(r.messages.some((m) => m.code === "day_one_rule" && m.severity === "info")).toBe(true);
+  it("maps the 17:00 bulletin to the next day and warns that the payload labels the issue day", () => {
+    expect(b.assessments.map((a) => a.valid_date)).toEqual(["2026-10-02", "2026-10-03", "2026-10-04"]);
+    expect(b.assessments.map((a) => a.forecast_horizon_days)).toEqual([1, 2, 3]);
+    expect(r.messages.find((m) => m.code === "day_one_rule")?.message).toContain("day one is 2026-10-02");
+    const mismatch = r.messages.find((m) => m.code === "payload_date_mismatch");
+    expect(mismatch?.severity).toBe("warning");
+    expect(mismatch?.message).toContain("payload says 2026-10-01");
   });
-  it("can apply the next-day rule instead", () => {
-    const n = importAvcanProducts(load("byk-2026-10-01-live.json"), { ...opts, dayOneRule: "next_day_plus_index" });
-    expect(n.records[0].assessments[0].valid_date).toBe("2026-10-02");
+  it("treats a bulletin issued before noon as covering its own issue day", () => {
+    const morning = structuredClone(load("byk-2026-10-01-live.json"));
+    const p = (Array.isArray(morning) ? morning : [morning])[0];
+    p.report.dateIssued = "2026-10-02T14:00:00.000Z"; // 08:00 MDT
+    const m = importAvcanProducts(morning, { ...opts, capturedAt: "2026-10-02T14:05:00Z" });
+    expect(m.records[0].assessments[0].valid_date).toBe("2026-10-02");
+    expect(m.records[0].assessments[0].forecast_horizon_days).toBe(0);
+    expect(m.messages.some((x) => x.code === "morning_issue" && x.severity === "warning")).toBe(true);
+  });
+  it("can still apply the payload-date rule", () => {
+    const n = importAvcanProducts(load("byk-2026-10-01-live.json"), { ...opts, dayOneRule: "payload_date" });
+    expect(n.records[0].assessments.map((a) => a.valid_date)).toEqual(["2026-10-01", "2026-10-02", "2026-10-03"]);
+    expect(n.messages.some((m) => m.code === "payload_date_mismatch")).toBe(false);
   });
   it("produces the same hash for the same payload (idempotent re-import key)", () => {
     const again = importAvcanProducts(load("byk-2026-10-01-live.json"), { ...opts, capturedAt: "2026-10-02T00:00:00Z" });
@@ -58,8 +71,9 @@ describe("avalanche.ca adapter — synthetic in-season shape", () => {
     expect(r.records[0].assessments[1].problems).toEqual([]);
     expect(a.confidence).toBe("moderate");
   });
-  it("uses the local date for a 00:00Z date value (17:00 the day before in Mountain time)", () => {
-    expect(r.records[0].assessments[0].valid_date).toBe("2027-01-14");
+  it("maps an afternoon bulletin to the next day, matching its own day labels", () => {
+    expect(r.records[0].assessments.map((a) => a.valid_date)).toEqual(["2027-01-15", "2027-01-16"]);
+    expect(r.messages.some((m) => m.code === "payload_date_mismatch")).toBe(false);
   });
 });
 

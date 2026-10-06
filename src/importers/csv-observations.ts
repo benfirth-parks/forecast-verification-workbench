@@ -40,16 +40,23 @@ export type ObservationRecord =
   | { kind: "weather_observation"; record: WeatherObservation };
 
 export interface CsvInput {
-  /** CSV text, or an array of row objects (JSON adapter). */
+  /** CSV text, or an array of row objects (JSON or spreadsheet adapter). */
   data: string | Record<string, unknown>[];
   file_name: string;
   import_run_id: string;
+  /** Source row number of each entry in `data` rows (spreadsheets); defaults to header on line 1. */
+  row_numbers?: number[];
+  /** Checksum of the original file when `data` was decoded from it (spreadsheets). */
+  checksum?: string;
+  /** Messages from decoding the file, reported with the import's own. */
+  messages?: ImportMessage[];
 }
 
 export function importObservations(input: CsvInput, mapping: CsvMapping): ImportResult<ObservationRecord> {
-  const messages: ImportMessage[] = [];
+  const messages: ImportMessage[] = [...(input.messages ?? [])];
   const records: ObservationRecord[] = [];
   const rejected: { row: number; raw: unknown }[] = [];
+  const rowNumber = (i: number) => input.row_numbers?.[i] ?? i + 2; // header is line 1
   let rows: Record<string, string>[] = [];
   let headers: string[] = [];
   if (typeof input.data === "string") {
@@ -63,7 +70,7 @@ export function importObservations(input: CsvInput, mapping: CsvMapping): Import
     rows = input.data.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v === null || v === undefined ? "" : String(v)])));
     headers = [...new Set(rows.flatMap((r) => Object.keys(r)))];
   }
-  const checksum = sha256(typeof input.data === "string" ? input.data : JSON.stringify(input.data));
+  const checksum = input.checksum ?? sha256(typeof input.data === "string" ? input.data : JSON.stringify(input.data));
   const rowsWithParseError = new Set(messages.filter((m) => m.code === "partial_row" || m.code === "csv_parse").map((m) => m.row));
 
   const mapped = new Set([...Object.values(mapping.columns), ...Object.values(mapping.variables ?? {}).map((v) => v!.column)]);
@@ -78,13 +85,13 @@ export function importObservations(input: CsvInput, mapping: CsvMapping): Import
   const unknown = headers.filter((h) => !mapped.has(h));
   if (unknown.length) messages.push({ severity: "info", code: "unmapped_columns", message: `Unmapped columns preserved in raw_payload only: ${unknown.join(", ")}` });
   if (messages.some((m) => m.severity === "error" && !m.row)) {
-    return finish({ adapter: CSV_ADAPTER, adapter_version: CSV_ADAPTER_VERSION, source_system: mapping.source_system, source_identifier: input.file_name, checksum, records, rejected: rows.map((raw, i) => ({ row: i + 2, raw })), messages });
+    return finish({ adapter: CSV_ADAPTER, adapter_version: CSV_ADAPTER_VERSION, source_system: mapping.source_system, source_identifier: input.file_name, checksum, records, rejected: rows.map((raw, i) => ({ row: rowNumber(i), raw })), messages });
   }
 
   const seen = new Set<string>();
   const elevationUnits = new Set<string>();
   rows.forEach((raw, i) => {
-    const rowNo = i + 2; // header is line 1
+    const rowNo = rowNumber(i);
     const rowMsgs: ImportMessage[] = [];
     const push = (severity: ImportMessage["severity"], code: string, message: string, field?: string) => rowMsgs.push({ severity, code, message, row: rowNo, field });
     const get = (field: string) => {

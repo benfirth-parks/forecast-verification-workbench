@@ -7,6 +7,7 @@ import {
 } from "../../domain/vocab";
 import type { CaseScore } from "../../scoring/case";
 import { api } from "../api";
+import { DayStages, type DayStagesView } from "../components/stages";
 import { AssessmentEditor, BANDS_TOP_DOWN, emptyDraft, ErrorText, ProblemSummary, Rate, RatingBadge, RatingsTable, type AssessmentDraft } from "../components/assessment";
 
 type Row = Record<string, unknown>;
@@ -21,6 +22,7 @@ interface Detail {
   adjudications: Row[];
   history: Row[];
   comparison: CaseScore | null;
+  stages: DayStagesView | null;
   comparison_basis: { assessment_id: string; status: string; version: number } | null;
 }
 
@@ -46,6 +48,7 @@ export function CasePage({ id, role }: { id: string; role: Role }) {
         <button className="btn no-print ml-auto" onClick={() => window.print()}>Print summary</button>
       </div>
       <ErrorText error={error} />
+      {d.stages && <div className="mb-3"><DayStages day={d.stages} /></div>}
       <div className="grid gap-3 lg:grid-cols-3">
         <ForecastColumn d={d} />
         <EvidenceColumn d={d} canReview={canReview} onChange={load} onError={setError} />

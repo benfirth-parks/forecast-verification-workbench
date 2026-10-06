@@ -22,18 +22,23 @@ export const AVCAN_SOURCE_SYSTEM = "avalanche.ca";
 
 /**
  * How a dangerRatings[] entry maps to a local calendar day.
- * - "payload_date": the local date of `date.value` in the bulletin zone (default).
+ * - "evening_next_day" (default): a bulletin issued at or after the cutoff hour
+ *   (local) covers the next day, so day one = issue date + 1; one issued before
+ *   the cutoff covers its own issue day. Parks BYK confirmed on 2026-10-06 that
+ *   the 17:00 bulletin represents the next day's hazard.
+ * - "payload_date": the local date of `date.value` in the bulletin zone.
  * - "issue_date_plus_index": issue date + array index.
- * - "next_day_plus_index": day after issue + array index.
- * The correct rule for Parks BYK is an open question (see docs/phase-0-discovery.md).
+ * - "next_day_plus_index": day after issue + array index, whatever the issue time.
  */
-export type DayOneRule = "payload_date" | "issue_date_plus_index" | "next_day_plus_index";
+export type DayOneRule = "evening_next_day" | "payload_date" | "issue_date_plus_index" | "next_day_plus_index";
 
 export interface AvcanOptions {
   domainCode: string;
   capturedAt: string;
   importRunId: string;
   dayOneRule?: DayOneRule;
+  /** Local hour at or after which "evening_next_day" maps day one to the next day (default 12). */
+  dayOneCutoffHour?: number;
   /** Owner value(s) to accept, e.g. ["parks-byk"]. */
   owners?: string[];
   /** Warn when a snapshot was first captured this long after issue. */
@@ -124,9 +129,18 @@ function parseProduct(p: unknown, row: number, opts: AvcanOptions, messages: Imp
   };
 
   const confidence = parseConfidence(val(obj(report.confidence).rating));
-  const rule = opts.dayOneRule ?? "payload_date";
-  info("day_one_rule", `Danger-rating days mapped with rule "${rule}" (unconfirmed for Parks BYK).`);
+  const rule = opts.dayOneRule ?? "evening_next_day";
   const issueDate = localDate(issuedIso, zone);
+  const cutoff = opts.dayOneCutoffHour ?? 12;
+  const issuedHour = localHour(issuedIso, zone);
+  const offset = rule === "next_day_plus_index" || (rule === "evening_next_day" && issuedHour >= cutoff) ? 1 : 0;
+  if (rule === "evening_next_day") {
+    info("day_one_rule", offset
+      ? `Issued ${String(issuedHour).padStart(2, "0")}:00 local, so day one is ${addDays(issueDate, 1)} (the evening bulletin covers the next day).`
+      : `Issued before ${cutoff}:00 local, so day one is the issue day ${issueDate}.`);
+    if (!offset) warn("morning_issue", "Bulletin issued before the cutoff; treated as covering its own issue day. Check whether this was an update.");
+  } else info("day_one_rule", `Danger-rating days mapped with rule "${rule}".`);
+  const payloadDisagrees: string[] = [];
   const problems = parseProblems(report.problems, row, messages);
 
   const days = arr(report.dangerRatings);
@@ -140,7 +154,12 @@ function parseProduct(p: unknown, row: number, opts: AvcanOptions, messages: Imp
         err("invalid_time", `dangerRatings[${i}].date.value is not a timestamp`, `dangerRatings[${i}].date`);
         validDate = addDays(issueDate, i);
       } else validDate = localDate(dateValue, zone);
-    } else validDate = addDays(issueDate, i + (rule === "next_day_plus_index" ? 1 : 0));
+    } else {
+      validDate = addDays(issueDate, i + offset);
+      if (dateValue && !Number.isNaN(Date.parse(dateValue)) && localDate(dateValue, zone) !== validDate) {
+        payloadDisagrees.push(`day ${i + 1}: ${validDate} (payload says ${localDate(dateValue, zone)}${day.date && obj(day.date).display ? `, "${String(obj(day.date).display)}"` : ""})`);
+      }
+    }
     const ratings: Partial<Record<ElevationBand, RatingCell>> = {};
     const r = obj(day.ratings);
     for (const key of Object.keys(r)) {
@@ -176,8 +195,15 @@ function parseProduct(p: unknown, row: number, opts: AvcanOptions, messages: Imp
       label: null,
     };
   });
+  if (payloadDisagrees.length) {
+    warn("payload_date_mismatch", `The payload's own day labels differ from the rule used: ${payloadDisagrees.join("; ")}. The rule was applied; the payload is kept unchanged.`, "report.dangerRatings");
+  }
   if (problems.length && days.length) info("problems_day_one", "Bulletin problems attached to the first rated day only.");
   return { issuance, assessments, sub_area: { id: String(obj(product.area).id ?? "") || null, title: String(report.title ?? "") || null } };
+}
+
+function localHour(isoUtc: string, zone: string): number {
+  return Number(new Intl.DateTimeFormat("en-CA", { timeZone: zone, hour: "2-digit", hourCycle: "h23" }).format(new Date(isoUtc)));
 }
 
 function parseProblems(raw: unknown, row: number, messages: ImportMessage[]): AvalancheProblem[] {

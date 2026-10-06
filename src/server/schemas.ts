@@ -82,10 +82,12 @@ export const adjudicationBody = z.object({
 });
 
 export const importBody = z.object({
-  adapter: z.enum(["avcan-bulletin", "avyfx-feed", "csv-observations"]),
+  adapter: z.enum(["avcan-bulletin", "avyfx-feed", "csv-observations", "xlsx-observations"]),
   file_name: z.string().min(1).max(200),
-  /** JSON payload for bulletin/feed adapters; CSV text or row array for observations. */
+  /** JSON payload for bulletin/feed adapters; CSV text or row array for observations; base64 .xlsx for spreadsheets. */
   payload: z.unknown(),
+  /** Spreadsheet adapter: worksheet to read (default: the first). */
+  sheet: z.string().max(100).optional(),
   captured_at: instant.optional(),
   mapping: z.unknown().optional(),
   /** Commit only: checksum from the dry run, to prove the same payload is being committed. */

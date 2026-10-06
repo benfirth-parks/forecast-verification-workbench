@@ -8,7 +8,7 @@ import { MorningMeeting } from "./pages/MorningMeeting";
 import { Analytics } from "./pages/Analytics";
 import { Imports } from "./pages/Imports";
 
-const NAV: [string, string][] = [["/today-review", "Review queue"], ["/morning", "Morning meeting"], ["/analytics", "Analytics"], ["/imports", "Imports"]];
+const NAV: [string, string][] = [["/today-review", "Review queue"], ["/morning", "Daily meetings"], ["/analytics", "Analytics"], ["/imports", "Imports"]];
 
 export function App() {
   const [me, setMe] = useState<{ id: string; role: Role } | null>(null);

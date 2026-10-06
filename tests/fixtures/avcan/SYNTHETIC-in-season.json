@@ -14,11 +14,11 @@
       "highlights": "<p>Synthetic highlight text.</p>",
       "confidence": {"rating": {"value": "moderate", "display": "Moderate"}},
       "dangerRatings": [
-        {"date": {"value": "2027-01-15T00:00:00Z", "display": "Thursday"}, "ratings": {
+        {"date": {"value": "2027-01-15T07:00:00Z", "display": "Friday"}, "ratings": {
           "alp": {"rating": {"value": "considerable", "display": "3 - Considerable"}},
           "tln": {"rating": {"value": "moderate", "display": "2 - Moderate"}},
           "btl": {"rating": {"value": "low", "display": "1 - Low"}}}},
-        {"date": {"value": "2027-01-16T00:00:00Z", "display": "Friday"}, "ratings": {
+        {"date": {"value": "2027-01-16T07:00:00Z", "display": "Saturday"}, "ratings": {
           "alp": {"rating": {"value": "high"}}, "tln": {"rating": {"value": "considerable"}}, "btl": {"rating": {"value": "moderate"}}}}
       ],
       "problems": [

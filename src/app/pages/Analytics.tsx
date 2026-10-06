@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { DANGER_LABEL, DISCREPANCY_LABEL, ELEVATION_BAND_LABEL, EVIDENCE_LABEL, PROBLEM_LABEL, type DiscrepancyCategory } from "../../domain/vocab";
 import type { SeasonSummary } from "../../scoring/misses";
+import { STAGE_LABEL, type TransitionSummary } from "../../scoring/stages";
 import type { WeatherSummary } from "../../scoring/weather";
 import { api } from "../api";
 import { BANDS_TOP_DOWN, ErrorText, Rate } from "../components/assessment";
 import { navigate } from "../router";
 
-interface Summary { scoring_version: string; exclusion_rule: string; season: SeasonSummary; weather: WeatherSummary[]; evidence: Record<string, number> }
+interface Summary { scoring_version: string; exclusion_rule: string; season: SeasonSummary; weather: WeatherSummary[]; evidence: Record<string, number>; stages: TransitionSummary[]; stage_rule: string }
 const f2 = (n: number | null) => (n === null ? "—" : n.toFixed(2));
 
 export function Analytics({ query }: { query: URLSearchParams }) {
@@ -77,6 +78,26 @@ export function Analytics({ query }: { query: URLSearchParams }) {
                 <td>{p.meanCombinedOverlap === null ? "—" : `${Math.round(p.meanCombinedOverlap * 100)}%`}</td><td>{f2(p.meanLikelihoodMaxSteps)}</td><td>{f2(p.meanSensitivitySteps)}</td><td>{f2(p.meanSizeMaxDifference)}</td></tr>
             ))}
           </tbody></table>
+        </div>
+
+        <div className="card overflow-x-auto">
+          <h2 className="h2">How the call changed through the day</h2>
+          <p className="mb-2 text-xs text-slate-700">{s.stage_rule}</p>
+          {s.stages.every((t) => t.days === 0) ? <p className="text-sm">No day has two recorded calls yet.</p> : s.stages.filter((t) => t.days > 0).map((t) => (
+            <div key={`${t.from}-${t.to}`} className="mb-3">
+              <h3 className="font-semibold">{STAGE_LABEL[t.from]} → {STAGE_LABEL[t.to]}</h3>
+              <p className="text-sm">{t.days} day(s) with both · changed on <Rate r={t.daysChanged} /></p>
+              <table className="table"><thead><tr><th>Band</th><th>Compared</th><th>Raised</th><th>Lowered</th><th>Unchanged</th><th>Moved toward hindsight</th><th>Moved away</th></tr></thead><tbody>
+                {BANDS_TOP_DOWN.map((b) => { const x = t.bands[b]; return (
+                  <tr key={b}><td>{ELEVATION_BAND_LABEL[b]}</td><td>{x.compared}</td><td><Rate r={x.raised} /></td><td><Rate r={x.lowered} /></td><td><Rate r={x.unchanged} /></td><td><Rate r={x.towardHindsight} /></td><td><Rate r={x.awayFromHindsight} /></td></tr>
+                ); })}
+              </tbody></table>
+              <p className="mt-1 text-xs">Problems added: {Object.entries(t.problemsAdded).map(([k, n]) => `${PROBLEM_LABEL[k as keyof typeof PROBLEM_LABEL]} ${n}`).join(" · ") || "none"}
+                {t.addedConfirmed.denominator > 0 && <> (kept by hindsight <Rate r={t.addedConfirmed} />)</>}</p>
+              <p className="text-xs">Problems dropped: {Object.entries(t.problemsRemoved).map(([k, n]) => `${PROBLEM_LABEL[k as keyof typeof PROBLEM_LABEL]} ${n}`).join(" · ") || "none"}
+                {t.removedConfirmed.denominator > 0 && <> (also absent in hindsight <Rate r={t.removedConfirmed} />)</>}</p>
+            </div>
+          ))}
         </div>
 
         <div className="card overflow-x-auto">

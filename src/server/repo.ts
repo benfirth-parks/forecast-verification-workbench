@@ -10,6 +10,7 @@ import type { ImportResult } from "../importers/common";
 import type { BulletinBundle } from "../importers/avcan-bulletin";
 import type { ObservationRecord } from "../importers/csv-observations";
 import { canonicalJson } from "../scoring/common";
+import type { DayStages, Stage } from "../scoring/stages";
 import { sha256 } from "../importers/common";
 import type { Db } from "./db";
 
@@ -300,7 +301,7 @@ export async function createMorningAssessment(db: Db, input: MorningInput, actor
   return { issuanceId, assessmentId: assessment.id, amended: Boolean(existing.rows[0]) };
 }
 
-/** Afternoon nowcast for a date: what the team believed by end of day, before hindsight review. */
+/** Afternoon meeting call for a date (stored as a nowcast): what the team believed by end of day, before hindsight review. */
 export async function createNowcast(db: Db, input: Omit<MorningInput, "weather"> , actor: Actor) {
   const dom = await ensureDomain(db);
   const bounds = localDayBounds(input.date, BYK_DOMAIN.time_zone);
@@ -311,7 +312,7 @@ export async function createNowcast(db: Db, input: Omit<MorningInput, "weather">
     assessment_kind: "nowcast", assessment_time: input.issued_at, valid_from: bounds.start, valid_to: bounds.end,
     valid_date: input.date, forecast_horizon_days: 0, ratings: input.ratings, problems: input.problems,
     confidence: input.confidence, rationale: input.rationale, status: "final", version: 1, created_by: actor.id,
-    created_at: new Date().toISOString(), supersedes_id: null, label: "Afternoon nowcast",
+    created_at: new Date().toISOString(), supersedes_id: null, label: "Afternoon meeting",
   };
   await insertAssessment(db, a, dom);
   await audit(db, actor, "nowcast.create", "hazard_assessment", a.id, { date: input.date });
@@ -404,6 +405,75 @@ export async function caseDetail(db: Db, id: string) {
   const adjudications = (await db.query("select * from adjudications where verification_case_id = $1 order by created_at", [id])).rows;
   const history = (await db.query("select at, actor, action, details from audit_events where entity_id = $1 order by at", [id])).rows;
   return { case: c, issuance, amendments, forecast, hindsight, nowcasts, evidence: { avalanches, mitigation, field, weatherObs, weatherExp, coverage }, adjudications, history };
+}
+
+// ---------- the day's stages ----------
+
+export interface StageMeta { issued_at: string | null; assessment_type?: string; horizon_days?: number | null; versions?: number; entries?: number; status?: string }
+export interface DayStageInfo { date: string; stages: DayStages; meta: Partial<Record<Stage, StageMeta>>; hindsightFinal: boolean }
+
+/**
+ * For each valid day: the public bulletin issued for it (first captured
+ * version, shortest lead time, normally the 17:00 issue the evening before),
+ * the morning meeting (first version as entered), the latest afternoon
+ * meeting entry, and a hindsight review. With `hindsightCaseId` only that
+ * case's own hindsight is used, so one case never reveals another reviewer's
+ * independent hindsight.
+ */
+export async function loadDayStages(db: Db, opts: { from?: string; to?: string; domainCode?: string; hindsightCaseId?: string } = {}): Promise<DayStageInfo[]> {
+  const domain = await db.query<{ id: string }>("select id from forecast_domains where code = $1", [opts.domainCode ?? BYK_DOMAIN.code]);
+  if (!domain.rows[0]) return []; // nothing imported yet
+  const params: unknown[] = [domain.rows[0].id];
+  let range = "";
+  if (opts.from) { params.push(opts.from); range += ` and a.valid_date >= $${params.length}`; }
+  if (opts.to) { params.push(opts.to); range += ` and a.valid_date <= $${params.length}`; }
+  const live = "join import_runs r on r.id = i.import_run_id and r.status <> 'superseded'";
+  type Row = { id: string; d: string; issued_at: Date | string | null; assessment_type?: string; horizon?: number | null; n?: number; status?: string };
+  const bulletin = (await db.query<Row>(
+    `select distinct on (a.valid_date) a.id, a.valid_date::text as d, i.issued_at, i.assessment_type, a.forecast_horizon_days as horizon
+     from hazard_assessments a join forecast_issuances i on i.id = a.forecast_issuance_id ${live}
+     where a.forecast_domain_id = $1 and a.assessment_kind = 'forecast' and i.supersedes_id is null
+       and i.assessment_type in ('public_bulletin', 'operational_forecast') ${range}
+     order by a.valid_date, (i.assessment_type <> 'public_bulletin'), (a.forecast_horizon_days = 0), a.forecast_horizon_days, i.captured_at`, params)).rows;
+  const morning = (await db.query<Row>(
+    `select distinct on (a.valid_date) a.id, a.valid_date::text as d, i.issued_at,
+       (select count(*)::int from forecast_issuances x where x.source_system = i.source_system and x.source_record_id = i.source_record_id) as n
+     from hazard_assessments a join forecast_issuances i on i.id = a.forecast_issuance_id ${live}
+     where a.forecast_domain_id = $1 and a.assessment_kind = 'forecast' and i.supersedes_id is null and i.assessment_type = 'morning_hazard' ${range}
+     order by a.valid_date, i.captured_at`, params)).rows;
+  const afternoon = (await db.query<Row>(
+    `select distinct on (a.valid_date) a.id, a.valid_date::text as d, a.assessment_time as issued_at, count(*) over (partition by a.valid_date)::int as n
+     from hazard_assessments a left join forecast_issuances i on i.id = a.forecast_issuance_id
+     where a.forecast_domain_id = $1 and a.assessment_kind = 'nowcast' and a.status = 'final'
+       and (i.id is null or (i.assessment_type = 'morning_hazard' and i.import_run_id in (select id from import_runs where status <> 'superseded'))) ${range}
+     order by a.valid_date, a.assessment_time desc`, params)).rows;
+  const hParams = [...params];
+  let caseFilter = "";
+  if (opts.hindsightCaseId) { hParams.push(opts.hindsightCaseId); caseFilter = ` and a.verification_case_id = $${hParams.length}`; }
+  const hindsight = (await db.query<Row>(
+    `select distinct on (a.valid_date) a.id, a.valid_date::text as d, a.assessment_time as issued_at, a.status
+     from hazard_assessments a
+     where a.forecast_domain_id = $1 and a.assessment_kind = 'hindsight' and a.status <> 'superseded' ${range}${caseFilter}
+     order by a.valid_date, (a.status = 'final') desc, a.version desc, a.created_at desc`, hParams)).rows;
+  const all = await loadAssessments(db, [...bulletin, ...morning, ...afternoon, ...hindsight].map((r) => r.id));
+  const byId = new Map(all.map((a) => [a.id, a]));
+  const days = new Map<string, DayStageInfo>();
+  const put = (stage: Stage, rows: Row[], meta: (r: Row) => StageMeta) => {
+    for (const r of rows) {
+      const a = byId.get(r.id);
+      if (!a) continue;
+      const d = days.get(r.d) ?? { date: r.d, stages: {}, meta: {}, hindsightFinal: false };
+      d.stages[stage] = a;
+      d.meta[stage] = meta(r);
+      days.set(r.d, d);
+    }
+  };
+  put("bulletin", bulletin, (r) => ({ issued_at: iso(r.issued_at), assessment_type: r.assessment_type, horizon_days: r.horizon ?? null }));
+  put("morning", morning, (r) => ({ issued_at: iso(r.issued_at), versions: r.n }));
+  put("afternoon", afternoon, (r) => ({ issued_at: iso(r.issued_at), entries: r.n }));
+  put("hindsight", hindsight, (r) => ({ issued_at: iso(r.issued_at), status: r.status }));
+  for (const d of days.values()) d.hindsightFinal = d.stages.hindsight?.status === "final";
+  return [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export async function saveHindsightDraft(db: Db, caseId: string, h: Pick<HazardAssessment, "ratings" | "problems" | "confidence" | "rationale">, actor: Actor) {

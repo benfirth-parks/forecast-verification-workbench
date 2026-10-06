@@ -4,12 +4,21 @@ import type { Role } from "../../domain/vocab";
 import { api } from "../api";
 import { ErrorText } from "../components/assessment";
 
-type Adapter = "avcan-bulletin" | "avyfx-feed" | "csv-observations";
+type Adapter = "avcan-bulletin" | "avyfx-feed" | "csv-observations" | "xlsx-observations";
+const TABULAR = new Set<Adapter>(["csv-observations", "xlsx-observations"]);
+
+/** File bytes as base64, in chunks so large spreadsheets don't overflow the call stack. */
+async function toBase64(f: File): Promise<string> {
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
 interface Message { severity: string; code: string; message: string; row?: number; field?: string }
 interface Validation { import_run_id: string; checksum: string; summary: Record<string, number>; messages: Message[]; already_committed: boolean; preview: unknown[] }
 
 const MAPPING_TEMPLATE = JSON.stringify({
-  target: "avalanche_event", source_system: "<your source system>", domain_code: "BYK", time_zone: "America/Edmonton", elevation_unit: "m",
+  target: "avalanche_event", source_system: "caa-infoex", domain_code: "BYK", time_zone: "America/Edmonton", elevation_unit: "m",
   columns: { source_record_id: "ID", observed_at: "Date observed", occurred_from: "Occurred from", occurred_to: "Occurred to", observation_confidence: "Confidence",
     location_name: "Location", size: "Size", trigger_type: "Trigger", aspect: "Aspect", elevation_m: "Elevation", problem_type: "Problem" },
 }, null, 2);
@@ -20,6 +29,7 @@ export function Imports({ role }: { role: Role }) {
   const [text, setText] = useState("");
   const [mapping, setMapping] = useState(MAPPING_TEMPLATE);
   const [capturedAt, setCapturedAt] = useState("");
+  const [sheet, setSheet] = useState("");
   const [validation, setValidation] = useState<Validation | null>(null);
   const [committed, setCommitted] = useState<Record<string, unknown> | null>(null);
   const [runs, setRuns] = useState<Record<string, unknown>[]>([]);
@@ -29,8 +39,11 @@ export function Imports({ role }: { role: Role }) {
   useEffect(loadRuns, [role]);
 
   const body = () => {
-    const payload = adapter === "csv-observations" ? text : JSON.parse(text);
-    return { adapter, file_name: fileName || "pasted", payload, mapping: adapter === "csv-observations" ? JSON.parse(mapping) : undefined, captured_at: capturedAt ? new Date(capturedAt).toISOString() : undefined };
+    const payload = TABULAR.has(adapter) ? text : JSON.parse(text);
+    return {
+      adapter, file_name: fileName || "pasted", payload, mapping: TABULAR.has(adapter) ? JSON.parse(mapping) : undefined,
+      sheet: adapter === "xlsx-observations" && sheet ? sheet : undefined, captured_at: capturedAt ? new Date(capturedAt).toISOString() : undefined,
+    };
   };
   return (
     <section className="space-y-3">
@@ -39,17 +52,24 @@ export function Imports({ role }: { role: Role }) {
         <div className="card space-y-2">
           <div className="flex flex-wrap items-end gap-3">
             <label><span className="label">Source</span>
-              <select className="input" value={adapter} onChange={(e) => { setAdapter(e.target.value as Adapter); setValidation(null); setCommitted(null); }}>
+              <select className="input" value={adapter} onChange={(e) => { setAdapter(e.target.value as Adapter); setText(""); setFileName(""); setValidation(null); setCommitted(null); }}>
                 <option value="avcan-bulletin">avalanche.ca bulletin (JSON)</option>
                 <option value="avyfx-feed">Parks Avy FX feed (JSON)</option>
                 <option value="csv-observations">Observations (CSV)</option>
+                <option value="xlsx-observations">Observations (Excel, e.g. InfoEx export)</option>
               </select></label>
             <label><span className="label">File</span>
-              <input className="input" type="file" accept=".json,.csv,.txt" onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; setFileName(f.name); setText(await f.text()); setValidation(null); }} /></label>
-            {adapter !== "csv-observations" && <label><span className="label">Captured at (if not now)</span><input className="input" type="datetime-local" value={capturedAt} onChange={(e) => setCapturedAt(e.target.value)} /></label>}
+              <input className="input" type="file" accept={adapter === "xlsx-observations" ? ".xlsx" : ".json,.csv,.txt"} onChange={async (e) => {
+                const f = e.target.files?.[0]; if (!f) return;
+                setFileName(f.name); setText(adapter === "xlsx-observations" ? await toBase64(f) : await f.text()); setValidation(null);
+              }} /></label>
+            {adapter === "xlsx-observations" && <label><span className="label">Sheet (blank = first)</span><input className="input" value={sheet} onChange={(e) => { setSheet(e.target.value); setValidation(null); }} /></label>}
+            {!TABULAR.has(adapter) && <label><span className="label">Captured at (if not now)</span><input className="input" type="datetime-local" value={capturedAt} onChange={(e) => setCapturedAt(e.target.value)} /></label>}
           </div>
-          <label className="block"><span className="label">Payload</span><textarea className="input w-full font-mono text-xs" rows={6} value={text} onChange={(e) => { setText(e.target.value); setValidation(null); }} /></label>
-          {adapter === "csv-observations" && <label className="block"><span className="label">Field mapping</span><textarea className="input w-full font-mono text-xs" rows={10} value={mapping} onChange={(e) => { setMapping(e.target.value); setValidation(null); }} /></label>}
+          {adapter === "xlsx-observations"
+            ? <p className="text-sm">{fileName ? `Loaded ${fileName} (${Math.round((text.length * 3) / 4 / 1024)} KB).` : "Choose an .xlsx file."} Dates and times in the sheet are read as the mapping's time zone (America/Edmonton by default).</p>
+            : <label className="block"><span className="label">Payload</span><textarea className="input w-full font-mono text-xs" rows={6} value={text} onChange={(e) => { setText(e.target.value); setValidation(null); }} /></label>}
+          {TABULAR.has(adapter) && <label className="block"><span className="label">Field mapping (use the column headers in your file)</span><textarea className="input w-full font-mono text-xs" rows={10} value={mapping} onChange={(e) => { setMapping(e.target.value); setValidation(null); }} /></label>}
           <div className="flex gap-2">
             <button className="btn" disabled={!text} onClick={async () => { setError(null); setCommitted(null); try { setValidation(await api<Validation>("/imports/validate", { method: "POST", body: body() })); loadRuns(); } catch (e) { setError(e); } }}>Validate (dry run)</button>
             <button className="btn btn-primary" disabled={!validation || validation.summary.accepted === 0} onClick={async () => { setError(null); try { setCommitted(await api("/imports/commit", { method: "POST", body: { ...body(), expected_checksum: validation!.checksum } })); loadRuns(); } catch (e) { setError(e); } }}>Commit</button>

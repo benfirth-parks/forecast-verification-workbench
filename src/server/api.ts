@@ -5,12 +5,14 @@ import type { HazardAssessment } from "../domain/types";
 import { importAvcanProducts } from "../importers/avcan-bulletin";
 import { importAvyfxFeed } from "../importers/avyfx-feed";
 import { importObservations, type CsvMapping } from "../importers/csv-observations";
+import { readXlsx, XLSX_ADAPTER, XLSX_ADAPTER_VERSION } from "../importers/xlsx";
 import type { ImportResult } from "../importers/common";
 import { sha256 } from "../importers/common";
 import { canonicalJson } from "../scoring/common";
 import { DEFAULT_SCORING_CONFIG, scoreCase, scoreRows, type ScoringConfig } from "../scoring/case";
 import { classifyEvidence } from "../scoring/evidence";
 import { summarizeSeason, type ScoredCase } from "../scoring/misses";
+import { dayChanges, summarizeTransitions } from "../scoring/stages";
 import { summarizeWeather, type WeatherPair } from "../scoring/weather";
 import type { WeatherVariable } from "../domain/types";
 import { AuthError, requireRole, type Authenticator } from "./auth";
@@ -28,6 +30,8 @@ export interface ApiDeps {
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+
+class BadRequest extends Error {}
 
 async function parse<T extends ZodTypeAny>(req: Request, schema: T): Promise<z.infer<T>> {
   let body: unknown;
@@ -53,6 +57,7 @@ export async function handle(req: Request, deps: ApiDeps): Promise<Response> {
   } catch (e) {
     if (e instanceof AuthError) return json({ error: e.message }, e.status);
     if (e instanceof ZodError) return json({ error: "Invalid request", issues: e.issues.map((i) => ({ path: i.path.join("."), message: i.message })) }, 400);
+    if (e instanceof BadRequest) return json({ error: e.message }, 400);
     if (e instanceof repo.NotFoundError) return json({ error: e.message }, 404);
     if (e instanceof repo.ConflictError) return json({ error: e.message }, 409);
     // Never echo payloads or stack traces; log only the message.
@@ -81,17 +86,20 @@ route("GET", "/cases", async ({ actor, url, deps }) => {
 route("GET", "/cases/:id", async ({ actor, params, deps }) => {
   requireRole(actor, "viewer");
   const d = await repo.caseDetail(deps.db, params[0]);
+  const config = deps.scoring ?? DEFAULT_SCORING_CONFIG;
+  const [day = null] = await repo.loadDayStages(deps.db, { from: d.case.valid_date, to: d.case.valid_date, domainCode: d.case.forecast_domain_code, hindsightCaseId: d.case.id });
   const latestHindsight = d.hindsight.filter((h) => h.status !== "superseded").at(-1) ?? null;
   // Differences unlock only after an independent hindsight has been saved.
   const comparison = latestHindsight && d.forecast
-    ? scoreCase(d.case, d.forecast, latestHindsight, deps.scoring ?? DEFAULT_SCORING_CONFIG)
+    ? scoreCase(d.case, d.forecast, latestHindsight, config)
     : null;
   const { raw_payload, ...issuance } = d.issuance as Record<string, unknown>;
   const rawVisible = repoCanSeeRaw(actor.role);
   // Viewers see evidence without raw source payloads or exact geometry.
   const redact = (rows: Record<string, unknown>[]) => rawVisible ? rows : rows.map((row) => Object.fromEntries(Object.entries(row).filter(([k]) => k !== "raw_payload" && k !== "geometry_geojson")));
   const evidence = { ...d.evidence, avalanches: redact(d.evidence.avalanches), mitigation: redact(d.evidence.mitigation), field: redact(d.evidence.field) };
-  return json({ ...d, evidence, issuance: { ...issuance, raw_payload: rawVisible ? raw_payload : undefined }, comparison, comparison_basis: latestHindsight ? { assessment_id: latestHindsight.id, status: latestHindsight.status, version: latestHindsight.version } : null });
+  const stages = day ? { ...day, changes: dayChanges(day.stages, config.synonyms) } : null;
+  return json({ ...d, evidence, stages, issuance: { ...issuance, raw_payload: rawVisible ? raw_payload : undefined }, comparison, comparison_basis: latestHindsight ? { assessment_id: latestHindsight.id, status: latestHindsight.status, version: latestHindsight.version } : null });
 });
 const repoCanSeeRaw = (role: string) => role === "analyst" || role === "reviewer" || role === "administrator";
 
@@ -216,17 +224,32 @@ route("POST", "/nowcast", async ({ req, actor, deps }) => {
 
 // ---------- imports ----------
 
-function runImporter(body: z.infer<typeof S.importBody>, runId: string, now: Date): ImportResult<unknown> {
+/** Base64 length of a ~6 MB file: Netlify Functions reject larger request bodies. */
+const MAX_XLSX_BASE64 = 8_000_000;
+const OBSERVATION_ADAPTERS = new Set(["csv-observations", "xlsx-observations"]);
+
+async function runImporter(body: z.infer<typeof S.importBody>, runId: string, now: Date): Promise<ImportResult<unknown>> {
   const capturedAt = body.captured_at ?? now.toISOString();
   if (body.adapter === "avcan-bulletin") return importAvcanProducts(body.payload, { domainCode: "BYK", capturedAt, importRunId: runId });
   if (body.adapter === "avyfx-feed") return importAvyfxFeed(body.payload, { domainCode: "BYK", capturedAt, importRunId: runId });
+  if (body.adapter === "xlsx-observations") {
+    if (typeof body.payload !== "string") throw new BadRequest("Spreadsheet payload must be the file as base64 text");
+    if (body.payload.length > MAX_XLSX_BASE64) throw new BadRequest("Spreadsheet is larger than about 6 MB; export a shorter date range");
+    const bytes = Buffer.from(body.payload, "base64");
+    const sheet = await readXlsx(bytes, { sheet: body.sheet });
+    const result = importObservations({
+      data: sheet.rows, row_numbers: sheet.row_numbers, file_name: body.sheet ? `${body.file_name} [${sheet.sheet}]` : body.file_name,
+      import_run_id: runId, checksum: sha256(bytes), messages: sheet.messages,
+    }, body.mapping as CsvMapping);
+    return { ...result, adapter: XLSX_ADAPTER, adapter_version: XLSX_ADAPTER_VERSION };
+  }
   return importObservations({ data: body.payload as string, file_name: body.file_name, import_run_id: runId }, body.mapping as CsvMapping);
 }
 
 route("POST", "/imports/validate", async ({ req, actor, deps }) => {
   requireRole(actor, "administrator");
   const body = await parse(req, S.importBody);
-  const result = runImporter(body, "dry-run", (deps.now ?? (() => new Date()))());
+  const result = await runImporter(body, "dry-run", (deps.now ?? (() => new Date()))());
   const id = await deps.db.tx(async (db) => {
     await repo.ensureDomain(db);
     const runId = await repo.recordImportRun(db, result, actor, { dryRun: true, mapping: body.mapping, fileName: body.file_name });
@@ -245,13 +268,13 @@ route("POST", "/imports/commit", async ({ req, actor, deps }) => {
   const body = await parse(req, S.importBody);
   return json(await deps.db.tx(async (db) => {
     await repo.ensureDomain(db);
-    const placeholder = runImporter(body, "pending", (deps.now ?? (() => new Date()))());
+    const placeholder = await runImporter(body, "pending", (deps.now ?? (() => new Date()))());
     if (body.expected_checksum && body.expected_checksum !== placeholder.checksum) throw new repo.ConflictError("Payload changed since validation; validate again");
     if (placeholder.summary.errors > 0 && placeholder.records.length === 0) throw new repo.ConflictError("Nothing importable: every record has errors");
     const runId = await repo.recordImportRun(db, placeholder, actor, { dryRun: false, mapping: body.mapping, fileName: body.file_name });
     // Re-run with the real run id so every record carries its provenance.
-    const result = runImporter(body, runId, (deps.now ?? (() => new Date()))());
-    const summary = body.adapter === "csv-observations"
+    const result = await runImporter(body, runId, (deps.now ?? (() => new Date()))());
+    const summary = OBSERVATION_ADAPTERS.has(body.adapter)
       ? await repo.commitObservations(db, result as never, runId)
       : await repo.commitBulletins(db, result as never, actor, runId);
     await repo.audit(db, actor, "import.commit", "import_run", runId, { adapter: body.adapter, checksum: result.checksum, ...summary });
@@ -309,13 +332,15 @@ route("GET", "/analytics/summary", async ({ actor, url, deps }) => {
     }
   }
   const season = summarizeSeason(scored, config);
+  const stages = summarizeTransitions(await repo.loadDayStages(deps.db, { from, to }), config.synonyms);
   const weather = (["hn24", "hw24", "wind_speed_max", "air_temp_max", "freezing_level", "precip_24"] as WeatherVariable[])
     .map((v) => summarizeWeather(weatherPairs, v, v === "hn24" ? 20 : undefined))
     .filter((w) => w.pairs + w.excludedMissingObservation > 0);
   return json({
     scoring_version: config.name, filters: { from, to, type }, generated_at: new Date().toISOString(),
     exclusion_rule: "Cases count only with a finalized hindsight and evidence class observed_positive or supported_negative.",
-    season, weather,
+    season, weather, stages,
+    stage_rule: "Changes between the team's own calls for the same day. Toward/away counts use only days with a finalized hindsight review.",
     evidence: Object.fromEntries(["observed_positive", "supported_negative", "unknown_due_to_coverage", "conflicting_evidence", "not_applicable", "unclassified"]
       .map((k) => [k, cases.filter((c) => (c.outcome_evidence_class ?? "unclassified") === k).length])),
   });

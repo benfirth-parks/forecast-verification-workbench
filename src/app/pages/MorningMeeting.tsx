@@ -1,6 +1,7 @@
-// Morning meeting entry: the team's morning hazard assessment, frozen on
-// submit, plus the afternoon nowcast for the same day. Each submission is a
-// new immutable version; corrections create an amendment, never an edit.
+// Daily meeting entry: the morning meeting's hazard call, frozen on submit,
+// and the afternoon meeting's call (stored as a nowcast) for the same day.
+// Each submission is a new immutable record; morning corrections create an
+// amendment, never an edit. The 17:00 public bulletin is imported separately.
 import { useState } from "react";
 import { localDate } from "../../domain/time";
 import type { Role } from "../../domain/vocab";
@@ -26,12 +27,12 @@ export function MorningMeeting({ role, query }: { role: Role; query: URLSearchPa
   const num = (s: string) => (s.trim() === "" ? null : Number(s));
   return (
     <section className="max-w-3xl">
-      <h1 className="mb-1 text-lg font-semibold">Morning meeting</h1>
-      <p className="mb-3 text-sm text-slate-700">Record the morning hazard assessment before the field day, and the afternoon nowcast after it. Both are stored as issued and compared later against an independent hindsight review.</p>
+      <h1 className="mb-1 text-lg font-semibold">Daily meetings</h1>
+      <p className="mb-3 text-sm text-slate-700">Record the morning meeting's hazard call before the field day and the afternoon meeting's call after it. The 17:00 public bulletin for the next day comes in through Imports. Each entry is frozen as submitted and compared later against an independent hindsight review.</p>
       <div className="mb-3 flex gap-2" role="tablist">
         {(["morning", "nowcast"] as const).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={`btn ${tab === t ? "btn-primary" : ""}`} onClick={() => { setDone(null); navigate("/morning", { tab: t, date }); }}>
-            {t === "morning" ? "Morning assessment" : "Afternoon nowcast"}</button>
+            {t === "morning" ? "Morning meeting" : "Afternoon meeting"}</button>
         ))}
       </div>
       {!canEnter && <p className="card text-sm">Your role can view but not enter assessments.</p>}
@@ -44,10 +45,10 @@ export function MorningMeeting({ role, query }: { role: Role; query: URLSearchPa
             if (tab === "morning") {
               const w = weather.filter((x) => x.expected_min !== "" || x.expected_max !== "").map((x) => ({ ...x, expected_min: num(x.expected_min), expected_max: num(x.expected_max) }));
               const r = await api<{ amended: boolean }>("/morning", { method: "POST", body: { ...body, weather: w } });
-              setDone(r.amended ? "Saved as an amendment. The first version stays the one under review." : "Morning assessment saved and frozen. A review case was created.");
+              setDone(r.amended ? "Saved as an amendment. The first version stays the one under review." : "Morning meeting call saved and frozen. A review case was created.");
             } else {
               await api("/nowcast", { method: "POST", body });
-              setDone("Afternoon nowcast saved.");
+              setDone("Afternoon meeting call saved.");
             }
             setDraft(emptyDraft());
           } catch (err) { setError(err); }
@@ -76,7 +77,7 @@ export function MorningMeeting({ role, query }: { role: Role; query: URLSearchPa
           )}
           <ErrorText error={error} />
           {done && <p role="status" className="rounded border border-green-700 bg-green-50 p-2 text-sm">{done}</p>}
-          <button className="btn btn-primary" type="submit">{tab === "morning" ? "Submit morning assessment" : "Submit afternoon nowcast"}</button>
+          <button className="btn btn-primary" type="submit">{tab === "morning" ? "Submit morning meeting call" : "Submit afternoon meeting call"}</button>
         </form>
       )}
     </section>

@@ -19,8 +19,10 @@ test("import → review → hindsight → adjudicate → analytics, and viewer i
 
   // Open the case from the queue.
   await page.getByRole("link", { name: "Review queue" }).click();
-  await page.getByRole("link", { name: "2027-01-14" }).click();
+  await page.getByRole("link", { name: "2027-01-15" }).click();
   await expect(page.getByText("Original forecast")).toBeVisible();
+  await expect(page.getByText("The day's calls for 2027-01-15")).toBeVisible();
+  await expect(page.getByText("No morning meeting entry")).toBeVisible();
   await expect(page.getByText("Differences are locked")).toBeVisible();
 
   // Independent hindsight first.
@@ -54,7 +56,7 @@ test("import → review → hindsight → adjudicate → analytics, and viewer i
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.getByRole("button", { name: "viewer", exact: true }).click();
   await page.getByRole("link", { name: "Review queue" }).click();
-  await page.getByRole("link", { name: "2027-01-14" }).click();
+  await page.getByRole("link", { name: "2027-01-15" }).click();
   await expect(page.getByText("Original forecast")).toBeVisible();
   await expect(page.getByRole("button", { name: "Save draft" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Finalize case" })).toHaveCount(0);

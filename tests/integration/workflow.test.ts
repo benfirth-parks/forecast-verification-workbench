@@ -1,10 +1,12 @@
 // End-to-end workflow through the API router against embedded Postgres.
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { handle } from "../../src/server/api";
 import { devAuthenticator } from "../../src/server/auth";
 import { openLocalDb } from "../../src/server/local-db";
 import type { Db } from "../../src/server/db";
 import { DEFAULT_SCORING_CONFIG } from "../../src/scoring/case";
+import { syntheticWorkbook } from "../importers/xlsx-fixture";
 
 const fixture = (p: string) => readFileSync(new URL(`../fixtures/${p}`, import.meta.url), "utf8");
 let db: Db;
@@ -22,8 +24,8 @@ const obsMapping = {
   columns: { source_record_id: "ID", observed_at: "Date observed", occurred_from: "Occurred from", observation_confidence: "Confidence",
     location_name: "Location", size: "Size", trigger_type: "Trigger", aspect: "Aspect", elevation_m: "Elevation", problem_type: "Problem" },
 };
-// The synthetic bulletin's first day maps to 2027-01-14 (payload-date rule); shift the obs onto that day.
-const obsCsv = fixture("csv/SYNTHETIC-avalanches.csv").replace(/2027-01-15/g, "2027-01-14");
+// The synthetic 16:00 bulletin on 2027-01-14 covers 2027-01-15, the day the synthetic avalanches occurred.
+const obsCsv = fixture("csv/SYNTHETIC-avalanches.csv");
 
 beforeAll(async () => { ({ db } = await openLocalDb()); });
 
@@ -191,5 +193,76 @@ describe("morning meeting workflow", () => {
     expect((await call("reviewer", "POST", `/cases/${id}/evidence`, {})).body.evidence_class).toBe("unknown_due_to_coverage");
     await call("reviewer", "POST", `/cases/${id}/coverage`, { coverage_type: "combined", coverage_class: "high", visibility_class: "high", patrol_coverage_class: "moderate", mitigation_sampling_class: null, remote_detection_status: null, rationale: "Clear skies, two field teams" });
     expect((await call("reviewer", "POST", `/cases/${id}/evidence`, {})).body.evidence_class).toBe("supported_negative");
+  });
+});
+
+describe("the day's calls: bulletin, morning meeting, afternoon meeting", () => {
+  const rated = (alp: number, tln: number, btl: number) => ({ alp: { kind: "rated", level: alp }, tln: { kind: "rated", level: tln }, btl: { kind: "rated", level: btl } });
+  const wind = { problem_type: "wind_slab", rank: 1, elevation_bands: ["alp"], aspects: ["NE"], cells: null, minimum_elevation_m: null, maximum_elevation_m: null, likelihood_min: null, likelihood_max: null, sensitivity: null, distribution: null, expected_size_min: null, expected_size_max: null, trend: null, confidence: null, comments: null };
+  const storm = { ...wind, problem_type: "storm_slab", rank: 2 };
+  let bulletinCase = "", morningCase = "";
+
+  it("lines up the 17:00 bulletin with the next day's morning and afternoon meetings", async () => {
+    const b = structuredClone(bulletin);
+    b[1].id = b[1].report.id = "synthetic-byk-0002";
+    b[1].report.dateIssued = "2027-02-01T00:00:00.000Z"; // 17:00 MST on 2027-01-31
+    b[1].report.validUntil = "2027-02-02T00:00:00.000Z";
+    b[1].report.dangerRatings[0].date.value = "2027-02-01T07:00:00Z";
+    b[1].report.dangerRatings[1].date.value = "2027-02-02T07:00:00Z";
+    expect((await call("administrator", "POST", "/imports/commit", { adapter: "avcan-bulletin", file_name: "b3.json", payload: b, captured_at: "2027-02-01T00:05:00Z" })).body.casesCreated).toBe(1);
+    await call("reviewer", "POST", "/morning", { date: "2027-02-01", issued_at: "2027-02-01T15:00:00Z", ratings: rated(3, 2, 1), problems: [wind], confidence: "moderate", rationale: null, weather: [] });
+    await call("reviewer", "POST", "/nowcast", { date: "2027-02-01", issued_at: "2027-02-01T23:00:00Z", ratings: rated(4, 3, 1), problems: [wind, storm], confidence: "moderate", rationale: null });
+    const cases = (await call("viewer", "GET", "/cases?from=2027-02-01&to=2027-02-01")).body.cases as { id: string; assessment_type: string }[];
+    bulletinCase = cases.find((c) => c.assessment_type === "public_bulletin")!.id;
+    morningCase = cases.find((c) => c.assessment_type === "morning_hazard")!.id;
+    const d = (await call("viewer", "GET", `/cases/${bulletinCase}`)).body;
+    expect(Object.keys(d.stages.stages)).toEqual(["bulletin", "morning", "afternoon"]);
+    expect(d.stages.meta.bulletin).toMatchObject({ horizon_days: 1, issued_at: "2027-02-01T00:00:00.000Z" });
+    const [bm, ma] = d.stages.changes;
+    expect(bm).toMatchObject({ from: "bulletin", to: "morning", problemsRemoved: ["persistent_slab"] });
+    expect(bm.bands.alp.delta).toBe(0);
+    expect(ma).toMatchObject({ from: "morning", to: "afternoon", problemsAdded: ["storm_slab"] });
+    expect(ma.bands.alp.delta).toBe(1);
+    expect(ma.bands.tln.delta).toBe(1);
+  });
+
+  it("never shows one case's hindsight on another case", async () => {
+    await call("reviewer", "POST", `/cases/${bulletinCase}/hindsight`, { ratings: rated(4, 3, 1), problems: [storm], confidence: "moderate", rationale: "Synthetic" });
+    await call("reviewer", "POST", `/cases/${bulletinCase}/hindsight/finalize`, {});
+    expect((await call("viewer", "GET", `/cases/${bulletinCase}`)).body.stages.stages.hindsight).toBeDefined();
+    expect((await call("viewer", "GET", `/cases/${morningCase}`)).body.stages.stages.hindsight).toBeUndefined();
+  });
+
+  it("summarizes how the call changed through the day in analytics", async () => {
+    const s = (await call("viewer", "GET", "/analytics/summary?from=2027-02-01&to=2027-02-01")).body;
+    const ma = s.stages.find((t: { from: string; to: string }) => t.from === "morning" && t.to === "afternoon");
+    expect(ma.days).toBe(1);
+    expect(ma.bands.alp.raised).toEqual({ numerator: 1, denominator: 1, value: 1 });
+    expect(ma.bands.alp.towardHindsight).toEqual({ numerator: 1, denominator: 1, value: 1 });
+    expect(ma.problemsAdded).toEqual({ storm_slab: 1 });
+    expect(ma.addedConfirmed).toEqual({ numerator: 1, denominator: 1, value: 1 });
+  });
+});
+
+describe("spreadsheet (InfoEx-style) observations", () => {
+  const mapping = {
+    target: "avalanche_event", source_system: "synthetic-infoex", domain_code: "BYK", time_zone: "America/Edmonton",
+    columns: { source_record_id: "ID", observed_at: "Date observed", observation_confidence: "Confidence", location_name: "Location", size: "Size", aspect: "Aspect", elevation_m: "Elevation", problem_type: "Problem" },
+  };
+  it("validates and commits an .xlsx upload idempotently, keyed by the file's own checksum", async () => {
+    const bytes = await syntheticWorkbook();
+    const body = { adapter: "xlsx-observations", file_name: "synthetic.xlsx", payload: Buffer.from(bytes).toString("base64"), mapping };
+    const v = await call("administrator", "POST", "/imports/validate", body);
+    expect(v.status).toBe(200);
+    expect(v.body.checksum).toBe(createHash("sha256").update(bytes).digest("hex"));
+    expect(v.body.summary.accepted).toBe(3);
+    const c = await call("administrator", "POST", "/imports/commit", { ...body, expected_checksum: v.body.checksum });
+    expect(c.body).toMatchObject({ inserted: 3, duplicates: 0 });
+    expect((await call("administrator", "POST", "/imports/commit", body)).body).toMatchObject({ inserted: 0, duplicates: 3 });
+    const runs = (await call("administrator", "GET", "/imports")).body.runs as { adapter: string; dry_run: boolean }[];
+    expect(runs.some((r) => r.adapter === "xlsx-observations" && !r.dry_run)).toBe(true);
+  });
+  it("rejects a payload that is not base64 text", async () => {
+    expect((await call("administrator", "POST", "/imports/validate", { adapter: "xlsx-observations", file_name: "x.xlsx", payload: [1, 2], mapping })).status).toBe(400);
   });
 });

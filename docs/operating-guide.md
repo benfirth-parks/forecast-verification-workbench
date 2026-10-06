@@ -1,9 +1,13 @@
 # Operating guide (reviewers)
 
-1. **Morning meeting.** Enter the morning hazard assessment (ratings per band, problems, confidence, expected weather)
-   on the Morning meeting page. It is frozen on submit; a correction is stored as an amendment.
-2. **Afternoon.** Enter the afternoon nowcast on the same page (tab "Afternoon nowcast").
-3. **After the day.** An administrator imports the bulletin snapshot(s) and observation files (Imports: validate, then commit).
+The hazard for a day is set three times: the public bulletin at 17:00 the evening before, then the morning and
+afternoon meetings on the day. The case page shows all three side by side, with what changed between them.
+
+1. **Morning meeting.** Enter the morning meeting's call (ratings per band, problems, confidence, expected weather)
+   on the Daily meetings page. It is frozen on submit; a correction is stored as an amendment.
+2. **Afternoon meeting.** Enter the afternoon meeting's call on the same page (tab "Afternoon meeting").
+3. **After the day.** An administrator imports the bulletin snapshot(s) and observation files, including InfoEx exports
+   as .xlsx or .csv (Imports: validate, then commit).
 4. **Review a case** (Review queue → case):
    - Read the original forecast (left) and the evidence (centre).
    - Enter your **independent hindsight** first. Differences unlock only after you save it.

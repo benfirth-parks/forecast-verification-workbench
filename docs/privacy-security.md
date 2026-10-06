@@ -7,6 +7,8 @@ bulletins and synthetic fixtures only.
 ## Data classification
 Public: avalanche.ca bulletins, MIN reports. Internal: morning assessments, nowcasts, hindsight, scores. Sensitive:
 exact avalanche/incident locations, raw source payloads of agency observations, adjudication comments, user identities.
+CAA InfoEx exports are shared under the InfoEx subscriber agreement: import only Parks' own records, and only once the
+agreement and Parks approvals allow copying them into this system.
 
 ## Roles
 viewer (read cases, evidence and aggregates; no raw payloads) · analyst (+ import history, audit, raw payloads) ·
